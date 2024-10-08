@@ -5,14 +5,14 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>e2049e20-b6dd-474e-8bca-1c8dc54725aa</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>computer_vision\cv_capture.py</StartupFile>
+    <StartupFile>multirotor\hello_drone.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>PythonClient</Name>
     <RootNamespace>PythonClient</RootNamespace>
-    <InterpreterId>Global|ContinuumAnalytics|Anaconda36-64</InterpreterId>
+    <InterpreterId>CondaEnv|CondaEnv|env1</InterpreterId>
     <InterpreterVersion>
     </InterpreterVersion>
   </PropertyGroup>
@@ -117,6 +117,8 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <InterpreterReference Include="CondaEnv|CondaEnv|env" />
+    <InterpreterReference Include="CondaEnv|CondaEnv|env1" />
     <InterpreterReference Include="Global|ContinuumAnalytics|Anaconda36-64" />
   </ItemGroup>
   <PropertyGroup>

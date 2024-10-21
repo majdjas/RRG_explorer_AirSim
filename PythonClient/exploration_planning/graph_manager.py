@@ -1,6 +1,8 @@
+from ast import Import
 import networkx as nx
 import numpy as np
-from scipy.spatial import KDTree
+#from scipy.spatial import KDTree
+from pyclustering.container import kdtree
 from utils import *
 from map_manager import *
 
@@ -23,44 +25,46 @@ class RRG:
 
     def sample_free_point(self, map: voxelMap, root_point):
         pt = add_3d_tuples(root_point, sample_random_point(self.expanding_radius))
-        while not map.detect_point_freedom(pt):
+        while not map.check_point_freedom(pt):
             pt = add_3d_tuples(root_point, sample_random_point(self.expanding_radius))
         return pt
 
 
     def build_local_graph(self, map: voxelMap, root_node):
         local_graph = nx.Graph()
-        local_graph.add_node(root_node)
-        tree_data = [root_node]
+        local_graph.add_node(root_node, VG=0)
+        kd_tree = kdtree.kdtree([root_node])
         n_v = 0
         n_e = 0
 
         while n_v < self.max_local_nodes and n_e < self.max_local_edges: # TODO make function
             rand_node = quantize_coordinates(self.sample_free_point(map, root_node))
-            kd_tree = KDTree(tree_data)
-            _, nearest_node_idx = kd_tree.query([rand_node])
-            if not map.detect_line_segment_collision(rand_node, tree_data[nearest_node_idx[0]]):
+            nearest_node = kd_tree.find_nearest_dist_node(rand_node, self.expanding_radius * 2).data # *2 to never return none be careful wheather r or r^2
+            if not map.detect_line_segment_collision(rand_node, nearest_node):
                 local_graph.add_node(rand_node, VG=map.find_volumetric_gain(rand_node))
                 n_v += 1
 
-                local_graph.add_edge(rand_node, tree_data[nearest_node_idx[0]], weight=calc_dist(rand_node, tree_data[nearest_node_idx[0]]))
+                local_graph.add_edge(rand_node, nearest_node, weight=calc_dist(rand_node, nearest_node))
                 n_e += 1
 
-                nearest_nodes_witihin_delta_idx = kd_tree.query_ball_point(rand_node, self.pathing_radius) # TODO MAKE FUNCTION
-                for near_node_idx in nearest_nodes_witihin_delta_idx:
-                    if not map.detect_line_segment_collision(rand_node, tree_data[near_node_idx]):
-                        local_graph.add_edge(rand_node, tree_data[near_node_idx], weight=calc_dist(rand_node, tree_data[near_node_idx]))
+                nearest_nodes_witihin_delta = kd_tree.find_nearest_dist_nodes(rand_node, self.pathing_radius) # TODO MAKE FUNCTION
+                for near_node_struct in nearest_nodes_witihin_delta:
+                    near_node = near_node_struct[1].data
+                    if not map.detect_line_segment_collision(rand_node, near_node):
+                        local_graph.add_edge(rand_node, near_node, weight=calc_dist(rand_node, near_node))
                         n_e += 1
                         if n_e >= self.max_local_edges:
                             break
 
-                tree_data.append(rand_node)
+                kd_tree.insert(rand_node)
+        self.graph = nx.compose(self.graph, local_graph) ### TODO CHECK
         return local_graph
     
 
     def plan_local_path(self, map: voxelMap, pose_curr):
         local_graph = self.build_local_graph(map, pose_curr)
         target_nodes = list(local_graph.nodes) # TODO remove curr?
+        #target_nodes = (n for n in local_graph.nodes() if local_graph.degree[n]==1)
 
         paths = [] # TODO set size
         for node in target_nodes:
@@ -81,14 +85,38 @@ class RRG:
 
 
     def compute_exploration_gain(map: voxelMap, local_graph, path, w_d, w_s):
-        gain = map.find_volumetric_gain(path[0])
+        gain = 0
         cumulative_euclidean_distance = 0
         for idx in range(1, len(path)): #TODO check this 
             cumulative_euclidean_distance += calc_dist(path[idx-1], path[idx]) # how to not repeat this
             gain += local_graph.nodes[path[idx]]['VG'] * np.exp(-w_d * cumulative_euclidean_distance)
-        #gain *= similarity_function TODO
+        
+        path_intrp = interpolate_path(path, 0.2)
+        n = len(path_intrp)
+        gain *= np.exp(w_s * RRG.compute_path_distance(path_intrp, compute_straight_path(path[0], sub_3d_tuples(path[-1], path[0]), n, 0.2)))
         return gain
     
+
+    def compute_path_distance(path_1, path_2):
+        n = len(path_1)
+        m = len(path_2)
+
+        dist_matrix = np.ndarray([n+1,m+1])
+        for i in range(n+1):
+            dist_matrix[i][0] = np.inf
+
+        for j in range(m+1):
+            dist_matrix[0][j] = np.inf
+
+        dist_matrix[0][0] = 0
+        for i in range(1, n+1):
+            for j in range(1, m+1):
+                d = np.linalg.norm(sub_3d_tuples(path_1[i-1], path_2[j-1]))
+                dist_matrix[i][j] = d + np.min([np.min([dist_matrix[i-1][j-1], dist_matrix[i-1][j]]), dist_matrix[i][j-1]])
+
+        return dist_matrix[n][m]
+
+
     def compute_global_exploration_gain(map: voxelMap, path, RET, epsilon_d): # TODO RET nd ETA
         return map.find_volumetric_gain(path[-1]) * np.exp(-epsilon_d * RRG.compute_cumulative_euclidean_distance(path))
     
